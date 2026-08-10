@@ -1,42 +1,26 @@
-name: SauceDemo Pytest AWS CI
+name: SauceDemo Pytest AWS Automation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  test:
+  pytest:
     runs-on: ubuntu-latest
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       S3_BUCKET: ${{ vars.S3_BUCKET }}
-      CLOUDWATCH_LOG_GROUP: /qa/pytest
-      CLOUDWATCH_NAMESPACE: QA/Pytest
+      CLOUDWATCH_LOG_GROUP: ${{ vars.CLOUDWATCH_LOG_GROUP }}
+      CLOUDWATCH_NAMESPACE: ${{ vars.CLOUDWATCH_NAMESPACE }}
       SNS_TOPIC_ARN: ${{ vars.SNS_TOPIC_ARN }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Playwright
-        run: playwright install --with-deps chromium
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -44,46 +28,42 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Run Pytest
-        id: tests
-        run: pytest
+      - name: Verify AWS authentication
+        run: |
+          aws sts get-caller-identity
 
-      - name: Upload GitHub artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          name: saucedemo-test-results-${{ github.run_id }}
-          path: |
-            reports/
-            screenshots/
-            logs/
+          python-version: "3.11"
 
-      - name: Upload reports and screenshots to S3
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Pytest
+        run: |
+          pytest -v
+
+      - name: Upload test reports to S3
         if: always()
         run: |
-          aws s3 cp reports/ "s3://${S3_BUCKET}/pytest/${GITHUB_RUN_ID}/reports/" --recursive
-          aws s3 cp screenshots/ "s3://${S3_BUCKET}/pytest/${GITHUB_RUN_ID}/screenshots/" --recursive || true
-          aws s3 cp logs/ "s3://${S3_BUCKET}/pytest/${GITHUB_RUN_ID}/logs/" --recursive || true
-
-      - name: Publish CloudWatch failure metric
-        if: always()
-        run: |
-          if [ "${{ steps.tests.outcome }}" = "success" ]; then
-            FAILED=0
+          if [ -d reports ]; then
+            aws s3 cp reports/ \
+              s3://${S3_BUCKET}/reports/ \
+              --recursive
           else
-            FAILED=1
+            echo "reports directory does not exist"
           fi
 
-          aws cloudwatch put-metric-data \
-            --namespace "${CLOUDWATCH_NAMESPACE}" \
-            --metric-name TestsFailed \
-            --value "${FAILED}" \
-            --unit Count
-
-      - name: Send SNS notification on failure
-        if: failure()
+      - name: Upload screenshots to S3
+        if: always()
         run: |
-          aws sns publish \
-            --topic-arn "${SNS_TOPIC_ARN}" \
-            --subject "SauceDemo Pytest Failed - Run ${{ github.run_id }}" \
-            --message "SauceDemo Pytest failed. Reports and screenshots are available in S3 under pytest/${GITHUB_RUN_ID}/"
+          if [ -d screenshots ]; then
+            aws s3 cp screenshots/ \
+              s3://${S3_BUCKET}/screenshots/ \
+              --recursive
+          else
+            echo "screenshots directory does not exist"
+          fi
