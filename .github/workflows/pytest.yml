@@ -20,15 +20,18 @@ jobs:
 
     steps:
 
-      # ==========================================================
+      # ========================================================
       # Checkout
-      # ==========================================================
+      # ========================================================
+
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ==========================================================
+
+      # ========================================================
       # AWS OIDC Authentication
-      # ==========================================================
+      # ========================================================
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -36,58 +39,74 @@ jobs:
           aws-region: ap-south-1
           audience: sts.amazonaws.com
 
-      # ==========================================================
+
+      # ========================================================
       # Verify AWS Authentication
-      # ==========================================================
+      # ========================================================
+
       - name: Verify AWS authentication
         run: |
           aws sts get-caller-identity
 
-      # ==========================================================
+
+      # ========================================================
       # Setup Python
-      # ==========================================================
+      # ========================================================
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ==========================================================
+
+      # ========================================================
       # Install Python Dependencies
-      # ==========================================================
+      # ========================================================
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ==========================================================
+
+      # ========================================================
       # Install Playwright Chromium
-      # ==========================================================
+      # ========================================================
+
       - name: Install Playwright Chromium
         run: |
           playwright install --with-deps chromium
 
-      # ==========================================================
-      # Verify Playwright Installation
-      # ==========================================================
+
+      # ========================================================
+      # Verify Playwright
+      # ========================================================
+
       - name: Verify Playwright installation
         run: |
           playwright --version
           playwright install --dry-run chromium
 
-      # ==========================================================
+
+      # ========================================================
       # Run Pytest
-      # ==========================================================
+      # ========================================================
+
       - name: Run Pytest
         run: |
           pytest -v
 
-      # ==========================================================
-      # Upload Pytest Reports to S3
-      # ==========================================================
+
+      # ========================================================
+      # Upload Reports to S3
+      # ========================================================
+
       - name: Upload test reports to S3
         if: always()
         run: |
+
           if [ -d reports ]; then
+
             echo "Uploading reports to S3..."
 
             aws s3 cp reports/ \
@@ -95,17 +114,24 @@ jobs:
               --recursive
 
             echo "Reports uploaded successfully"
+
           else
+
             echo "Reports directory does not exist"
+
           fi
 
-      # ==========================================================
+
+      # ========================================================
       # Upload Screenshots to S3
-      # ==========================================================
+      # ========================================================
+
       - name: Upload screenshots to S3
         if: always()
         run: |
+
           if [ -d screenshots ]; then
+
             echo "Uploading screenshots to S3..."
 
             aws s3 cp screenshots/ \
@@ -113,17 +139,24 @@ jobs:
               --recursive
 
             echo "Screenshots uploaded successfully"
+
           else
+
             echo "Screenshots directory does not exist"
+
           fi
 
-      # ==========================================================
+
+      # ========================================================
       # Upload Logs to S3
-      # ==========================================================
+      # ========================================================
+
       - name: Upload logs to S3
         if: always()
         run: |
+
           if [ -d logs ]; then
+
             echo "Uploading logs to S3..."
 
             aws s3 cp logs/ \
@@ -131,6 +164,9 @@ jobs:
               --recursive
 
             echo "Logs uploaded successfully"
+
           else
+
             echo "Logs directory does not exist"
+
           fi
