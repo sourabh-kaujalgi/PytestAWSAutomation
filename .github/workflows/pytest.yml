@@ -12,43 +12,76 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      S3_BUCKET: ${{ vars.S3_BUCKET }}
-      CLOUDWATCH_LOG_GROUP: ${{ vars.CLOUDWATCH_LOG_GROUP }}
-      CLOUDWATCH_NAMESPACE: ${{ vars.CLOUDWATCH_NAMESPACE }}
-      SNS_TOPIC_ARN: ${{ vars.SNS_TOPIC_ARN }}
+      AWS_REGION: ap-south-1
+      S3_BUCKET: saucedemo-pytest-reports
+      CLOUDWATCH_LOG_GROUP: /qa/pytest
+      CLOUDWATCH_NAMESPACE: QA/Pytest
+      SNS_TOPIC_ARN: arn:aws:sns:ap-south-1:493168377100:qa-test-alerts
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ---------------------------------------------------------
+      # Debug GitHub OIDC token
+      # ---------------------------------------------------------
       - name: Debug GitHub OIDC claims
+        shell: bash
         run: |
-          TOKEN=$(curl -s \
+          echo "Repository : $GITHUB_REPOSITORY"
+          echo "Ref        : $GITHUB_REF"
+          echo "Event      : $GITHUB_EVENT_NAME"
+
+          TOKEN_RESPONSE=$(curl -sSL \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
-            | jq -r '.value')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
 
-          echo "GitHub repository: $GITHUB_REPOSITORY"
-          echo "GitHub ref: $GITHUB_REF"
+          OIDC_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.value')
 
-          echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq '{
-            sub: .sub,
-            aud: .aud,
+          if [ -z "$OIDC_TOKEN" ] || [ "$OIDC_TOKEN" = "null" ]; then
+            echo "ERROR: Could not obtain GitHub OIDC token"
+            exit 1
+          fi
+
+          echo "OIDC token received successfully"
+
+          PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d '.' -f2)
+
+          # Add padding for base64 decoding
+          PADDING=$((4 - ${#PAYLOAD} % 4))
+          if [ "$PADDING" -ne 4 ]; then
+            PAYLOAD="${PAYLOAD}$(printf '=%.0s' $(seq 1 $PADDING))"
+          fi
+
+          echo "$PAYLOAD" | base64 -d 2>/dev/null | jq '{
+            issuer: .iss,
+            audience: .aud,
+            subject: .sub,
             repository: .repository,
             ref: .ref
           }'
 
+      # ---------------------------------------------------------
+      # AWS OIDC authentication
+      # ---------------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: arn:aws:iam::493168377100:role/GitHubActions-PytestAWSAutomation
+          aws-region: ap-south-1
+          audience: sts.amazonaws.com
 
+      # ---------------------------------------------------------
+      # Verify AWS authentication
+      # ---------------------------------------------------------
       - name: Verify AWS authentication
         run: |
           aws sts get-caller-identity
 
+      # ---------------------------------------------------------
+      # Python
+      # ---------------------------------------------------------
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -59,10 +92,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ---------------------------------------------------------
+      # Pytest
+      # ---------------------------------------------------------
       - name: Run Pytest
         run: |
           pytest -v
 
+      # ---------------------------------------------------------
+      # S3 Reports
+      # ---------------------------------------------------------
       - name: Upload test reports to S3
         if: always()
         run: |
@@ -74,6 +113,9 @@ jobs:
             echo "reports directory does not exist"
           fi
 
+      # ---------------------------------------------------------
+      # S3 Screenshots
+      # ---------------------------------------------------------
       - name: Upload screenshots to S3
         if: always()
         run: |
