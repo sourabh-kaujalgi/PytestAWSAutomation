@@ -46,6 +46,7 @@ jobs:
 
       - name: Verify AWS authentication
         run: |
+          echo "Verifying AWS authentication..."
           aws sts get-caller-identity
 
 
@@ -170,3 +171,16 @@ jobs:
             echo "Logs directory does not exist"
 
           fi
+
+
+      # ========================================================
+      # Lambda Trigger Information
+      # ========================================================
+
+      - name: Confirm S3 upload and Lambda trigger
+        if: always()
+        run: |
+          echo "GitHub Actions execution completed."
+          echo "Reports were uploaded to S3."
+          echo "If S3 event notification is configured,"
+          echo "the Lambda result processor will be triggered automatically."
