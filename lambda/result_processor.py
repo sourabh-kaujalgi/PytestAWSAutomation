@@ -1,85 +1,53 @@
 import json
 import os
 import boto3
-import xml.etree.ElementTree as ET
-from urllib.parse import unquote_plus
+from datetime import datetime
 
 
-s3 = boto3.client("s3")
 sns = boto3.client("sns")
-
-SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 
 
 def lambda_handler(event, context):
 
-    print("Received S3 event:")
+    print("Lambda triggered successfully")
+    print("Event:")
     print(json.dumps(event))
+
+    sns_topic_arn = os.environ.get("SNS_TOPIC_ARN")
 
     for record in event.get("Records", []):
 
-        bucket = record["s3"]["bucket"]["name"]
+        event_name = record.get("eventName", "")
 
-        key = unquote_plus(
-            record["s3"]["object"]["key"]
-        )
+        if event_name.startswith("ObjectCreated"):
 
-        print(f"Processing: s3://{bucket}/{key}")
+            bucket = record["s3"]["bucket"]["name"]
+            key = record["s3"]["object"]["key"]
 
-        # Process only JUnit reports
-        if not key.endswith("junit.xml"):
-            print(f"Skipping: {key}")
-            continue
+            print("New S3 object detected:")
+            print(f"Bucket: {bucket}")
+            print(f"Key: {key}")
 
-        response = s3.get_object(
-            Bucket=bucket,
-            Key=key
-        )
+            message = (
+                f"Pytest report uploaded successfully.\n\n"
+                f"Bucket: {bucket}\n"
+                f"Object: {key}\n"
+                f"Time: {datetime.utcnow().isoformat()}"
+            )
 
-        xml_content = response["Body"].read()
+            if sns_topic_arn:
 
-        root = ET.fromstring(xml_content)
+                sns.publish(
+                    TopicArn=sns_topic_arn,
+                    Subject="Pytest Automation Result",
+                    Message=message
+                )
 
-        total = int(root.attrib.get("tests", 0))
-        failures = int(root.attrib.get("failures", 0))
-        errors = int(root.attrib.get("errors", 0))
-        skipped = int(root.attrib.get("skipped", 0))
-
-        passed = total - failures - errors - skipped
-
-        status = "PASSED"
-
-        if failures > 0 or errors > 0:
-            status = "FAILED"
-
-        message = f"""
-SauceDemo Pytest Automation Result
-
-Status: {status}
-
-Total Tests : {total}
-Passed      : {passed}
-Failed      : {failures}
-Errors      : {errors}
-Skipped     : {skipped}
-
-S3 Report:
-s3://{bucket}/{key}
-"""
-
-        print(message)
-
-        sns.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Subject=f"Pytest Automation - {status}",
-            Message=message
-        )
-
-        print("SNS notification sent successfully")
+                print("SNS notification sent successfully.")
 
     return {
         "statusCode": 200,
-        "body": json.dumps(
-            "Result processing completed"
-        )
+        "body": json.dumps({
+            "message": "Pytest result processed successfully"
+        })
     }

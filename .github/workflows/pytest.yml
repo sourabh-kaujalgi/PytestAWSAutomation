@@ -184,3 +184,34 @@ jobs:
           echo "Reports were uploaded to S3."
           echo "If S3 event notification is configured,"
           echo "the Lambda result processor will be triggered automatically."
+
+
+      # ========================================================
+      # Deploy Lambda Function
+      # ========================================================
+
+      - name: Deploy Lambda function
+        if: always()
+        run: |
+
+          echo "Preparing Lambda deployment package..."
+
+          cd lambda
+
+          # Keep AWS Lambda handler as index.lambda_handler
+          cp result_processor.py index.py
+
+          echo "Creating Lambda ZIP package..."
+
+          zip -j ../lambda.zip index.py
+
+          cd ..
+
+          echo "Deploying Lambda function..."
+
+          aws lambda update-function-code \
+            --function-name saucedemo-pytest-result-processor \
+            --zip-file fileb://lambda.zip \
+            --region $AWS_REGION
+
+          echo "Lambda deployment completed successfully."
